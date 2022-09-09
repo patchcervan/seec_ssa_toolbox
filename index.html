@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="" xml:lang="">
+  <head>
+    <title>Introduction to step-selection analysis</title>
+    <meta charset="utf-8" />
+    <meta name="author" content="Francisco Cervantes" />
+    <script src="libs/header-attrs-2.14.3/header-attrs.js"></script>
+    <link rel="stylesheet" href="xaringan-themer_tuned.css" type="text/css" />
+  </head>
+  <body>
+    <textarea id="source">
+class: center, middle, inverse, title-slide
+
+.title[
+# Introduction to step-selection analysis
+]
+.subtitle[
+## SEEC stats toolbox
+]
+.author[
+### Francisco Cervantes
+]
+.institute[
+### Centre for Statistics in Ecology, the Environment and Conservation
+]
+.date[
+### 01-09-2022
+]
+
+---
+
+
+
+
+
+# Outline
+
+1. What is habitat selection?
+
+2. Introducing habitat availability
+
+3. Modelling step selection
+
+4. amt: habitat selection in R
+
+5. What else can we do?
+
+
+---
+
+.section[
+# 1. What is habitat selection?
+]
+
+---
+background-image:url(figures/hab_vs_pop_model_matthiopoulos_et_al.png)
+background-position:top 65% right 10%
+background-size:41%
+
+## What is habitat selection?
+
+.pull-left[
+- Use of habitats disproportionately to their availability.
+
+- Choices that organisms make driven by the type of environment
+that is available to them.
+
+- Habitat selection drives population density
+]
+
+.pull-right[
+.footnote[Matthiopoulos et al. 2020]
+]
+
+---
+
+## Poisson point process models
+
+In these spatial point processes, we observe a random number of points within a
+spatial domain `\(\Omega\)`, following a Poisson distribution with mean `\(\Lambda\)`.
+
+The number points at each location `\(s\)` within our domain is also given by a
+Poisson distribution with mean `\(\lambda(s)\)`.
+
+`\(\lambda(s)\)` is called the intensity function, and `\(\Lambda = \int_{\Omega} \lambda(s)ds\)`.
+
+Alternatively, we can think of the probability of observing a point at `\(s\)` as being
+proportional `\(\lambda(s)\)`.
+
+The spatial density of points depends on `\(\lambda(s)\)`.
+
+---
+background-image:url(figures/point_pattern_1.png), url(figures/point_pattern_2.png)
+background-position:top 65% right 10%, top 65% right 90%
+background-size:45%, 45%
+
+
+## Poisson point process models
+
+
+
+---
+
+## Poisson point process models
+
+If we consider observed points, being detections of an organism, and
+
+If we can model `\(\lambda(s)\)` as a function of the habitat at `\(s\)`, it seems we
+could have a useful model for studying habitat selection.
+
+We could use a standard `\(\log(\lambda(s)) = \beta_0 + \beta_1 x_1 + ... + \beta_n x_n\)`,
+where `\(x_1, ... , x_n\)` are environmental covariates, and `\(\beta_1, ... , \beta_n\)` are
+regression coefficients.
+
+Let's simulate from this model...
+
+---
+
+## Two habitat layers
+
+
+&lt;img src="ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-1-1.png" style="display: block; margin: auto;" /&gt;
+
+
+---
+
+## Define parameters and simulate `\(\lambda(s)\)`
+
+.pull-left[
+
+
+```r
+# Coefficients for the IPP model
+# Our species likes heights a bit,
+# but doesn't like slopes
+betas &lt;- c(5, 0.5, -2) %&gt;%
+    matrix(nrow = 3, ncol = 1)
+
+# Intensity function over domain (raster cells)
+covts &lt;- stack(elev, slp) %&gt;%
+    setNames(c("elev", "slp")) %&gt;%
+    as.data.frame() %&gt;%
+    mutate(intcp = 1,
+           across(.cols = c(elev, slp),
+                  ~scale(.x, center = TRUE))) %&gt;%
+    select(intcp, elev, slp) %&gt;% 
+    as.matrix()
+
+# Intensity function at grid cells
+lambda_s &lt;- exp(covts %*% betas)
+```
+
+]
+
+--
+
+.pull-right[
+![](ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-3-1.png)&lt;!-- --&gt;
+]
+
+---
+
+## Sample from the PPP model
+
+.pull-left[
+
+
+```r
+# Calculate capital Lambda; how many points simulate?
+Lambda &lt;- mean(lambda_s)
+n_total &lt;- rpois(1, lambda = Lambda)
+
+# Where should these points be?
+# Probabilities of use are proportional to lambda_s
+# For simplicity we sample from the raster grid
+obs_loc &lt;- as.data.frame(elev, xy = TRUE) %&gt;%
+    sample_n(size = n_total,
+             replace = TRUE,
+             weight = lambda_s) %&gt;% 
+    transmute(x = jitter(x, amount = 0.05),
+              y = jitter(y, amount = 0.05))
+
+head(obs_loc, 4)
+```
+
+```
+##          x         y
+## 1 19.60283 -16.68293
+## 2 16.28607 -19.52861
+## 3 19.11028 -19.94267
+## 4 15.92014 -16.31713
+```
+
+]
+
+--
+
+.pull-right[
+![](ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-5-1.png)&lt;!-- --&gt;
+]
+
+
+---
+
+## Likelihood of `\(s_i\)`
+
+
+The probability of observing `\(s_i\)` can be computed as:
+
+`$$f(s_i) = \frac{\lambda(s_i|\beta)}{\int_{\Omega}\lambda(s_u|\beta)du} = \frac{e^{\mathbf{x_i}^\intercal\beta}}{\int_{\Omega}e^{\mathbf{x_u}^\intercal\beta}du}$$`
+
+where the denominator is the integral of the intensity function over the
+entire domain and it is necessary for `\(f(s_i)\)` to be between 0 and 1.
+
+We can use `\(f(s_i)\)` to build the likelihood function to estimate parameters `\(f(\beta)\)`.
+
+**The probability of use of any `\(s\)` depends on the function over the entire domain!**
+**-&gt; It is domain-specific.**
+
+
+---
+
+## Approximating the likelihood
+
+Computing the denominator of `\(f(s_i)\)` is quite costly, but there are ways of approximating it.
+
+- Sample background points and treat them as pseudo-absences -&gt; logistic regression
+
+- Divide the domain into grid cells and count the number of points -&gt; Poisson regression
+
+**Remember: these are only ways of approximating the difficult integral, and 
+estimate the `\(\beta\)` parameters (Warton and Shepherd 2010, Aarts et al. 2012)**
+
+---
+
+## Approximating the likelihood
+
+.pull-left[
+![](ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-6-1.png)&lt;!-- --&gt;
+]
+
+.pull-right[
+![](ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-7-1.png)&lt;!-- --&gt;
+]
+
+
+---
+
+.section[
+# 2. Introducing habitat availability
+]
+
+---
+## Heterogeneous availability
+
+Sometimes our organism "can't reach" all spatial locations equally.
+
+Then, the probability of selecting `\(s_i\)`, `\(f(s_i)\)` doesn't only depend on 
+habitat but also on some other availability function `\(\Phi(s_i)\)`.
+
+`$$f(s_i) = \frac{\lambda(s_i|\beta,...)}{\int_{\Omega}\lambda(s_u|\beta, ...)du} = \frac{e^{\mathbf{x_i}^\intercal\beta} \ \Phi(s_i|...)}{\int_{\Omega}e^{\mathbf{x_u}^\intercal\beta} \ \Phi(s_u|...)du}$$`
+
+---
+## Two habitat layers + one availability layer
+
+
+&lt;img src="ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-8-1.png" style="display: block; margin: auto;" /&gt;
+
+---
+## Availability-dependent intensity function
+
+.pull-left[
+
+
+```r
+# Same habitat preference coefficients
+betas &lt;- c(5, 0.5, -2) %&gt;%
+    matrix(nrow = 3, ncol = 1)
+
+# Extract covariates from raster cells
+covts &lt;- stack(elev, slp) %&gt;%
+    setNames(c("elev", "slp")) %&gt;%
+    as.data.frame() %&gt;%
+    mutate(intcp = 1,
+           across(.cols = c(elev, slp),
+                  ~scale(.x, center = TRUE))) %&gt;%
+    select(intcp, elev, slp) %&gt;% 
+    as.matrix()
+
+# Habitat contribution to intensity function
+lambda_hab &lt;- exp(covts %*% betas)
+
+# Define availabitlity function Phi
+Phi &lt;- function(x, y, centre){
+    1/sqrt((x - centre[1])^2 + (y - centre[2])^2)
+}
+
+# Availability contribution to intensity function
+lambda_ava &lt;- as.data.frame(elev, xy = TRUE) %&gt;% 
+    mutate(Phi_s = Phi(x, y, c(16.5, -18.5))) %&gt;%
+    pull(Phi_s)
+
+lambda_s &lt;- lambda_hab * lambda_ava
+```
+
+]
+
+--
+
+.pull-right[
+![](ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-10-1.png)&lt;!-- --&gt;
+]
+
+---
+
+.section[
+# 3. Modelling step selection
+]
+
+
+---
+
+## A model for step selection
+
+Telemetry data observations are collected sequentially, often close in time.
+
+There is a dependency between consecutive observations produced by movement constrains.
+
+Not all the spatial domain is equally available for all steps!
+
+We need an availability function that captures movement characteristics, to calculate
+a step-wise intensity function.
+
+We typically formulate the availability function using step-length and turning angles.
+
+
+---
+
+## A model for step selection
+
+The gamma distribution is a suitable model for step lengths.
+
+The Von Mises distribution is a suitable model for turning angles.
+
+`$$f(s_i) = \frac{\lambda(s_i|\beta,...)}{\int_{\Omega}\lambda(s_u|\beta, ...)du} = \frac{e^{\mathbf{x_i}^\intercal\beta} \ \Phi(s_i|...)}{\int_{\Omega}e^{\mathbf{x_u}^\intercal\beta} \ \Phi(s_u|...)du}$$`
+
+`$$\Phi(s_i|s_{i-1}, k, \theta, \kappa, \mu) = \mathrm{gamma}(k, \theta) * \mathrm{VM}(\mu, \kappa)$$`
+
+Let us simulate...
+
+---
+
+## Simulating from a step-selection model
+
+.pull-left[
+
+
+```r
+# Define step-length gamma parameters
+shape_gm &lt;- 0.05
+rate_gm &lt;- 0.01
+
+# Define turning-angles Von Mises parameters
+mu_vm &lt;- 0
+kappa_vm &lt;- 1
+```
+
+]
+
+.pull-right[
+![](ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-12-1.png)&lt;!-- --&gt;
+]
+
+
+---
+
+## Simulating from a step-selection model
+
+.pull-left[
+
+
+```r
+source("functions/calcDist.R")
+source("functions/calcTurnAng.R")
+
+# Create raster with habitat contributions to lambda
+lambda_hab &lt;- exp(covts %*% betas)
+lambda_r &lt;- setValues(elev, lambda_hab) %&gt;%
+    setNames("lambda_s")
+
+# Select initial observation
+obs_now &lt;- c(x = jitter(17.5, amount = 0.05),
+             y = jitter(-17.5, amount = 0.05))
+
+# create past observation to compute turning angles
+obs_past &lt;- c(NA, NA) # NA for the first obs
+
+# Calculate distance and angles to raster cells
+sel_r &lt;- as.data.frame(lambda_r, xy = TRUE) %&gt;%
+    # 1. Calculate distance to grid cells
+    mutate(dist = calcDist(obs_ini, x, y)) %&gt;%
+    # 2. Calculate angles to grid cells
+    rowwise() %&gt;%
+    mutate(ang = calcTurnAng(c(x, y), obs_ini, obs_past)) %&gt;%
+    ungroup()
+```
+
+]
+
+
+.pull-right[
+
+```r
+# Produce steps
+# Create selection raster from habitat and movement
+sel_r &lt;- sel_r %&gt;%
+    mutate(dist_ker = dgamma(dist, shape_gm, rate_gm),
+           ang_ker = dvonmises(circular(ang), mu_vm, kappa_vm)) %&gt;%
+    mutate(dist_ker = dist_ker/sum(dist_ker),
+           ang_ker = ang_ker/sum(ang_ker),
+           mov_ker = dist_ker*ang_ker/sum(dist_ker*ang_ker),
+           hab_ker = lambda_s / sum(lambda_s),
+           sel_ker = hab_ker*mov_ker / (sum(hab_ker*mov_ker)))
+
+# Sample new location
+obs_past &lt;- obs_now
+
+obs_now &lt;- sel_r %&gt;%
+    sample_n(size = 1,
+             weight = sel_ker) %&gt;%
+    transmute(x = jitter(x, amount = 0.05),
+              y = jitter(y, amount = 0.05))
+```
+]
+
+
+---
+background-image:url(figures/kernels_anim.gif)
+background-size:90%
+
+## Simulating from a step-selection model
+
+
+
+
+---
+
+## Fitting step-selection models
+
+We can use the likelihood of observing `\(s_i\)`, which is now conditional on `\(s_{i-1}\)` to construct `\(f(\beta)\)`.
+
+`$$f(s_i) = \frac{\lambda(s_i|\beta,...)}{\int_{\Omega}\lambda(s_u|\beta, ...)du} = \frac{e^{\mathbf{x_i}^\intercal\beta} \ \Phi(s_i|...)}{\int_{\Omega}e^{\mathbf{x_u}^\intercal\beta} \ \Phi(s_u|...)du}$$`
+
+`$$\Phi(s_i|s_{i-1}, k, \theta, \kappa, \mu) = \mathrm{gamma}(k, \theta) * \mathrm{VM}(\mu, \kappa)$$`
+But, again the numerator is (even more) complicated to compute.
+
+So, again we approximate the likelihood, with a (conditional) logistic or Poisson regression.
+
+Now we also need to estimate the movement parameters: `\(k, \theta, \kappa, \mu\)`.
+
+
+---
+
+.section[
+# 4. `amt`: habitat-selection analysis in R
+]
+
+---
+
+
+
+```r
+# Prepare data ------------------------------------------------------------
+
+# Read in simulations
+sims &lt;- read.csv("output/ssa_sims.csv")
+head(sims, 2)
+```
+
+```
+##          x         y                   t
+## 1 17.49579 -17.52483 2022-08-31 17:01:54
+## 2 17.83380 -16.86033 2022-08-31 18:16:42
+```
+
+```r
+# Make track
+sims$t &lt;- as.POSIXct(sims$t)
+sim_trk &lt;- make_track(sims, x, y, t,
+                      crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+
+# Explore track
+head(sim_trk, 2)
+```
+
+```
+## # A tibble: 2 × 3
+##      x_    y_ t_                 
+## * &lt;dbl&gt; &lt;dbl&gt; &lt;dttm&gt;             
+## 1  17.5 -17.5 2022-08-31 17:01:54
+## 2  17.8 -16.9 2022-08-31 18:16:42
+```
+
+
+---
+
+
+```r
+str(sim_trk)
+```
+
+```
+## track_xyt [500 × 3] (S3: track_xyt/track_xy/tbl_df/tbl/data.frame)
+##  $ x_: num [1:500] 17.5 17.8 17.7 17.2 16.2 ...
+##  $ y_: num [1:500] -17.5 -16.9 -16.8 -16.7 -16.6 ...
+##  $ t_: POSIXct[1:500], format: "2022-08-31 17:01:54" "2022-08-31 18:16:42" ...
+##  - attr(*, "crs_")=List of 2
+##   ..$ input: chr "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+##   ..$ wkt  : chr "GEOGCRS[\"unknown\",\n    DATUM[\"World Geodetic System 1984\",\n        ELLIPSOID[\"WGS 84\",6378137,298.25722"| __truncated__
+##   ..- attr(*, "class")= chr "crs"
+```
+
+```r
+# Something we usually want to check is the resolution of the track
+summarize_sampling_rate(sim_trk)
+```
+
+```
+## # A tibble: 1 × 9
+##     min    q1 median  mean    q3   max    sd     n unit 
+##   &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;int&gt; &lt;chr&gt;
+## 1  29.2  54.2   59.8  60.0  65.3  83.8  8.34   499 min
+```
+
+```r
+# We see the mean and median sampling rate is ca. 1 hour, but it varies
+# from 0.5 hour to 1.5 hours. We want to subsample the track to make it
+# as close as possible to a constant one-hour sampling rate
+sim_trk_1h &lt;- track_resample(sim_trk, rate = hours(1), tolerance = minutes(10))
+```
+
+---
+
+
+
+```r
+head(sim_trk_1h, 2)
+```
+
+```
+## # A tibble: 2 × 4
+##      x_    y_ t_                  burst_
+## * &lt;dbl&gt; &lt;dbl&gt; &lt;dttm&gt;               &lt;dbl&gt;
+## 1  17.5 -17.5 2022-08-31 17:01:54      1
+## 2  17.8 -16.9 2022-08-31 18:16:42      2
+```
+
+```r
+# amt allows us to change to a step representation rather than point
+# representation and that is what we usually want for step-selection analysis
+step_trk &lt;- steps(sim_trk_1h)
+head(step_trk, 3)
+```
+
+```
+## # A tibble: 3 × 10
+##     x1_   x2_   y1_   y2_   sl_ direction_p    ta_ t1_                 t2_                 dt_           
+## * &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;       &lt;dbl&gt;  &lt;dbl&gt; &lt;dttm&gt;              &lt;dttm&gt;              &lt;drtn&gt;        
+## 1  17.5  17.8 -17.5 -16.9 0.746        1.10 NA     2022-08-31 17:01:54 2022-08-31 18:16:42  74.80000 mins
+## 2  17.8  17.2 -16.9 -16.7 0.688        2.87  1.77  2022-08-31 18:16:42 2022-08-31 20:03:30 106.80000 mins
+## 3  17.2  16.2 -16.7 -16.6 0.998        3.06  0.190 2022-08-31 20:03:30 2022-08-31 21:12:50  69.33333 mins
+```
+
+```r
+step_trk &lt;- steps_by_burst(sim_trk_1h)
+head(step_trk, 3)
+```
+
+```
+## # A tibble: 3 × 11
+##   burst_   x1_   x2_   y1_   y2_   sl_ direction_p    ta_ t1_                 t2_                 dt_         
+## *  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;       &lt;dbl&gt;  &lt;dbl&gt; &lt;dttm&gt;              &lt;dttm&gt;              &lt;drtn&gt;      
+## 1      3  17.2  16.2 -16.7 -16.6 0.998        3.06 NA     2022-08-31 20:03:30 2022-08-31 21:12:50 69.33333 mi…
+## 2      3  16.2  17.0 -16.6 -18.3 1.91        -1.10  2.12  2022-08-31 21:12:50 2022-08-31 22:04:21 51.51667 mi…
+## 3      3  17.0  17.1 -18.3 -18.7 0.417       -1.40 -0.298 2022-08-31 22:04:21 2022-08-31 23:07:48 63.45000 mi…
+```
+
+---
+
+
+
+```r
+# step-selection analysis -------------------------------------------------
+
+# We are going to fit the model using conditional logistic regression,
+# so we need a sample of background available locations for each step
+step_rdm &lt;- random_steps(step_trk, 10)
+head(step_rdm, 3)
+```
+
+```
+## # A tibble: 3 × 12
+##   burst_   x1_   x2_   y1_   y2_   sl_   ta_ t1_                
+## *  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dttm&gt;             
+## 1      3  17.2  16.2 -16.7 -16.6 0.998 NA    2022-08-31 20:03:30
+## 2      3  17.2  18.3 -16.7 -20.0 3.50   1.97 2022-08-31 20:03:30
+## 3      3  17.2  16.6 -16.7 -17.7 1.15   1.12 2022-08-31 20:03:30
+## # … with 4 more variables: t2_ &lt;dttm&gt;, dt_ &lt;drtn&gt;, step_id_ &lt;int&gt;, case_ &lt;lgl&gt;
+## # ℹ Use `colnames()` to see all variable names
+```
+
+```r
+# See movement parameter estimates
+attr(step_rdm, "sl_")$params %&gt;% unlist()
+```
+
+```
+##    shape    scale 
+## 1.104680 1.392794
+```
+
+```r
+attr(step_rdm, "ta_")$params %&gt;% unlist()
+```
+
+```
+##     kappa        mu 
+## 0.2967655 0.0000000
+```
+
+---
+
+
+
+```r
+# Plot our random points
+step_rdm %&gt;%
+    ggplot() +
+    geom_point(aes(x = x2_, y = y2_, col = case_), alpha = 0.5)
+```
+
+&lt;img src="ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-19-1.png" style="display: block; margin: auto;" /&gt;
+
+---
+
+.pull-left[
+
+```r
+# Extract covariates
+elev &lt;- aggregate(raster("data/res01_srtm0_40_16.tif"),
+                  fact = 10)
+slp &lt;- aggregate(raster("data/res01_slope_40_16.tif"),
+                 fact = 10)
+
+elev &lt;- setValues(elev, scale(getValues(elev),
+                              center = TRUE))
+slp &lt;- setValues(slp, scale(getValues(slp),
+                            center = TRUE))
+
+covts &lt;- stack(elev, slp) %&gt;%
+    setNames(c("elev", "slp"))
+
+step_covts &lt;- extract_covariates(step_rdm, covts,
+                                 where = "end")
+
+# This is just because our raster doesn't cover
+# all of the points but it shouldn't be necessary!!!
+step_covts &lt;- step_covts %&gt;%
+    filter(!is.na(elev))
+
+# Add log step length and cos of turning angle as
+# covariates
+step_covts &lt;- step_covts %&gt;%
+    mutate(log_sl = log(sl_),
+           cos_ta = cos(ta_))
+```
+]
+
+.pull-right[
+![](ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-21-1.png)&lt;!-- --&gt;
+
+]
+
+
+---
+
+
+
+```r
+# Fit models
+ssm1 &lt;- fit_clogit(data = step_covts, case_ ~ elev + slp + strata(step_id_))
+summary(ssm1)
+```
+
+```
+## Call:
+## coxph(formula = Surv(rep(1, 2647L), case_) ~ elev + slp + strata(step_id_), 
+##     data = data, method = "exact")
+## 
+##   n= 2647, number of events= 350 
+## 
+##          coef exp(coef) se(coef)      z Pr(&gt;|z|)    
+## elev  0.46849   1.59758  0.08069  5.806 6.41e-09 ***
+## slp  -1.62592   0.19673  0.19979 -8.138 4.01e-16 ***
+## ---
+## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+## 
+##      exp(coef) exp(-coef) lower .95 upper .95
+## elev    1.5976     0.6259     1.364     1.871
+## slp     0.1967     5.0831     0.133     0.291
+## 
+## Concordance= 0.664  (se = 0.019 )
+## Likelihood ratio test= 108.1  on 2 df,   p=&lt;2e-16
+## Wald test            = 75.33  on 2 df,   p=&lt;2e-16
+## Score (logrank) test = 60.97  on 2 df,   p=6e-14
+```
+
+---
+
+
+
+```r
+# Fit models
+ssm2 &lt;- fit_clogit(data = step_covts, case_ ~ elev + slp + log_sl + cos_ta + strata(step_id_))
+summary(ssm2)
+```
+
+```
+## Call:
+## coxph(formula = Surv(rep(1, 2647L), case_) ~ elev + slp + log_sl + 
+##     cos_ta + strata(step_id_), data = data, method = "exact")
+## 
+##   n= 2579, number of events= 282 
+##    (68 observations deleted due to missingness)
+## 
+##            coef exp(coef) se(coef)      z Pr(&gt;|z|)    
+## elev    0.52154   1.68461  0.09241  5.644 1.66e-08 ***
+## slp    -1.79729   0.16575  0.22462 -8.002 1.23e-15 ***
+## log_sl  0.39051   1.47773  0.06545  5.966 2.43e-09 ***
+## cos_ta -0.20081   0.81807  0.09637 -2.084   0.0372 *  
+## ---
+## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+## 
+##        exp(coef) exp(-coef) lower .95 upper .95
+## elev      1.6846     0.5936    1.4055    2.0191
+## slp       0.1657     6.0333    0.1067    0.2574
+## log_sl    1.4777     0.6767    1.2998    1.6800
+## cos_ta    0.8181     1.2224    0.6773    0.9881
+## 
+## Concordance= 0.697  (se = 0.021 )
+## Likelihood ratio test= 132.9  on 4 df,   p=&lt;2e-16
+## Wald test            = 100.7  on 4 df,   p=&lt;2e-16
+## Score (logrank) test = 88.05  on 4 df,   p=&lt;2e-16
+```
+
+```r
+AIC(ssm1);AIC(ssm2)
+```
+
+```
+## [1] 1283.52
+```
+
+```
+## [1] 994.5544
+```
+
+---
+
+
+
+```r
+# Compare models
+AIC(ssm1);AIC(ssm2)
+```
+
+```
+## [1] 1283.52
+```
+
+```
+## [1] 994.5544
+```
+
+---
+
+.section[
+# 5. What else can we do?
+]
+
+
+---
+
+## Extensions of step-selection models
+
+- Integrated step-selection analysis
+.small[
+Avgar, Tal, Jonathan R. Potts, Mark A. Lewis, and Mark S. Boyce. 2016.
+“Integrated Step Selection Analysis: Bridging the Gap between Resource Selection and Animal Movement.”
+Edited by Luca Börger. Methods in Ecology and Evolution 7 (5): 619–30. https://doi.org/10.1111/2041-210X.12528.
+]
+
+
+- Multiple individuals
+.small[
+Muff, Stefanie, Johannes Signer, and John Fieberg. 2020. “Accounting for Individual‐specific Variation in Habitat‐selection Studies: Efficient Estimation of Mixed‐effects Models Using Bayesian or Frequentist Computation.” Edited by Eric Vander Wal. Journal of Animal Ecology 89 (1): 80–92. https://doi.org/10.1111/1365-2656.13087.
+]
+
+
+- Estimate utilization distributions
+.small[
+Signer, J., J. Fieberg, and Tal Avgar. 2017. “Estimating Utilization Distributions from Fitted Step-Selection Functions.”
+Ecosphere 8 (April): in press. https://doi.org/10.1002/ecs2.1771.
+]
+
+
+---
+# Other references
+.small[
+
+- Aarts, Geert, John Fieberg, and Jason Matthiopoulos. 2012. “Comparative Interpretation of Count, Presence-Absence and Point Methods for Species Distribution Models.” Methods in Ecology and Evolution 3 (1): 177–87. https://doi.org/10.1111/j.2041-210X.2011.00141.x.
+
+- Fieberg, John, Johannes Signer, Brian Smith, and Tal Avgar. 2021. “A ‘How‐to’ Guide for Interpreting Parameters 
+in Habitat‐Selection Analyses.” Journal of Animal Ecology, February, 1365-2656.13441. https://doi.org/10.1111/1365-2656.13441.
+
+- Hooten, Mevin B., Devin S. Johnson, Brett T. McClintock, and Juan M. Morales. 2017.
+Animal Movement: Statistical Models for Telemetry Data. Boca Raton, FL: CRC Press.
+
+- Matthiopoulos, Jason; Fieberg, John; Aarts, Geert. (2020). Species-Habitat Associations: Spatial data,
+predictive models, and ecological insights. University of Minnesota Libraries Publishing. Retrieved from the
+University of Minnesota Digital Conservancy, http://hdl.handle.net/11299/217469.
+
+- Signer, Johannes, John Fieberg, and Tal Avgar. 2019. “Animal Movement Tools (amt): R Package for Managing Tracking
+Data and Conducting Habitat Selection Analyses.” Ecology and Evolution 9 (2): 880–90. https://doi.org/10.1002/ece3.4823.
+
+- Warton, David I., and Leah C. Shepherd. 2010. “Poisson Point Process Models Solve the ‘Pseudo-Absence Problem’ for Presence-Only Data in Ecology.” The Annals of Applied Statistics 4 (3): 1383–1402. https://doi.org/10.1214/10-AOAS331.
+
+
+]
+
+    </textarea>
+<style data-target="print-only">@media screen {.remark-slide-container{display:block;}.remark-slide-scaler{box-shadow:none;}}</style>
+<script src="https://remarkjs.com/downloads/remark-latest.min.js"></script>
+<script>var slideshow = remark.create({
+"highlightStyle": "github",
+"highlightLines": true,
+"countIncrementalSlides": false,
+"ratio": "16:9"
+});
+if (window.HTMLWidgets) slideshow.on('afterShowSlide', function (slide) {
+  window.dispatchEvent(new Event('resize'));
+});
+(function(d) {
+  var s = d.createElement("style"), r = d.querySelector(".remark-slide-scaler");
+  if (!r) return;
+  s.type = "text/css"; s.innerHTML = "@page {size: " + r.style.width + " " + r.style.height +"; }";
+  d.head.appendChild(s);
+})(document);
+
+(function(d) {
+  var el = d.getElementsByClassName("remark-slides-area");
+  if (!el) return;
+  var slide, slides = slideshow.getSlides(), els = el[0].children;
+  for (var i = 1; i < slides.length; i++) {
+    slide = slides[i];
+    if (slide.properties.continued === "true" || slide.properties.count === "false") {
+      els[i - 1].className += ' has-continuation';
+    }
+  }
+  var s = d.createElement("style");
+  s.type = "text/css"; s.innerHTML = "@media print { .has-continuation { display: none; } }";
+  d.head.appendChild(s);
+})(document);
+// delete the temporary CSS (for displaying all slides initially) when the user
+// starts to view slides
+(function() {
+  var deleted = false;
+  slideshow.on('beforeShowSlide', function(slide) {
+    if (deleted) return;
+    var sheets = document.styleSheets, node;
+    for (var i = 0; i < sheets.length; i++) {
+      node = sheets[i].ownerNode;
+      if (node.dataset["target"] !== "print-only") continue;
+      node.parentNode.removeChild(node);
+    }
+    deleted = true;
+  });
+})();
+// add `data-at-shortcutkeys` attribute to <body> to resolve conflicts with JAWS
+// screen reader (see PR #262)
+(function(d) {
+  let res = {};
+  d.querySelectorAll('.remark-help-content table tr').forEach(tr => {
+    const t = tr.querySelector('td:nth-child(2)').innerText;
+    tr.querySelectorAll('td:first-child .key').forEach(key => {
+      const k = key.innerText;
+      if (/^[a-z]$/.test(k)) res[k] = t;  // must be a single letter (key)
+    });
+  });
+  d.body.setAttribute('data-at-shortcutkeys', JSON.stringify(res));
+})(document);
+(function() {
+  "use strict"
+  // Replace <script> tags in slides area to make them executable
+  var scripts = document.querySelectorAll(
+    '.remark-slides-area .remark-slide-container script'
+  );
+  if (!scripts.length) return;
+  for (var i = 0; i < scripts.length; i++) {
+    var s = document.createElement('script');
+    var code = document.createTextNode(scripts[i].textContent);
+    s.appendChild(code);
+    var scriptAttrs = scripts[i].attributes;
+    for (var j = 0; j < scriptAttrs.length; j++) {
+      s.setAttribute(scriptAttrs[j].name, scriptAttrs[j].value);
+    }
+    scripts[i].parentElement.replaceChild(s, scripts[i]);
+  }
+})();
+(function() {
+  var links = document.getElementsByTagName('a');
+  for (var i = 0; i < links.length; i++) {
+    if (/^(https?:)?\/\//.test(links[i].getAttribute('href'))) {
+      links[i].target = '_blank';
+    }
+  }
+})();
+// adds .remark-code-has-line-highlighted class to <pre> parent elements
+// of code chunks containing highlighted lines with class .remark-code-line-highlighted
+(function(d) {
+  const hlines = d.querySelectorAll('.remark-code-line-highlighted');
+  const preParents = [];
+  const findPreParent = function(line, p = 0) {
+    if (p > 1) return null; // traverse up no further than grandparent
+    const el = line.parentElement;
+    return el.tagName === "PRE" ? el : findPreParent(el, ++p);
+  };
+
+  for (let line of hlines) {
+    let pre = findPreParent(line);
+    if (pre && !preParents.includes(pre)) preParents.push(pre);
+  }
+  preParents.forEach(p => p.classList.add("remark-code-has-line-highlighted"));
+})(document);</script>
+
+<script>
+slideshow._releaseMath = function(el) {
+  var i, text, code, codes = el.getElementsByTagName('code');
+  for (i = 0; i < codes.length;) {
+    code = codes[i];
+    if (code.parentNode.tagName !== 'PRE' && code.childElementCount === 0) {
+      text = code.textContent;
+      if (/^\\\((.|\s)+\\\)$/.test(text) || /^\\\[(.|\s)+\\\]$/.test(text) ||
+          /^\$\$(.|\s)+\$\$$/.test(text) ||
+          /^\\begin\{([^}]+)\}(.|\s)+\\end\{[^}]+\}$/.test(text)) {
+        code.outerHTML = code.innerHTML;  // remove <code></code>
+        continue;
+      }
+    }
+    i++;
+  }
+};
+slideshow._releaseMath(document);
+</script>
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+(function () {
+  var script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.src  = 'https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-MML-AM_CHTML';
+  if (location.protocol !== 'file:' && /^https?:/.test(script.src))
+    script.src  = script.src.replace(/^https?:/, '');
+  document.getElementsByTagName('head')[0].appendChild(script);
+})();
+</script>
+  </body>
+</html>
