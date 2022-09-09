@@ -1,0 +1,830 @@
+---
+title: "Introduction to step-selection analysis"
+subtitle: "SEEC stats toolbox"
+author: "Francisco Cervantes"
+institute: "Centre for Statistics in Ecology, the Environment and Conservation"
+date: "01-09-2022"
+output:
+  xaringan::moon_reader:
+    css: xaringan-themer_tuned.css
+    lib_dir: libs
+    output_file: index.html
+    nature:
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+      ratio: "16:9"
+
+---
+
+
+```{r xaringan-themer, include=FALSE, warning=FALSE}
+library(xaringanthemer)
+library(dplyr)
+library(raster)
+library(sf)
+library(ggplot2)
+library(amt)
+library(circular)
+
+style_mono_accent(
+  base_color = "#4E85A3",
+  header_font_google = google_font("Palaquin"),
+  text_font_google   = google_font("Montserrat", "300", "300i"),
+  code_font_google   = google_font("Fira Mono")
+)
+```
+
+# Outline
+
+1. What is habitat selection?
+
+2. Introducing habitat availability
+
+3. Modelling step selection
+
+4. amt: habitat selection in R
+
+5. What else can we do?
+
+
+---
+
+.section[
+# 1. What is habitat selection?
+]
+
+---
+background-image:url(figures/hab_vs_pop_model_matthiopoulos_et_al.png)
+background-position:top 65% right 10%
+background-size:41%
+
+## What is habitat selection?
+
+.pull-left[
+- Use of habitats disproportionately to their availability.
+
+- Choices that organisms make driven by the type of environment
+that is available to them.
+
+- Habitat selection drives population density
+]
+
+.pull-right[
+.footnote[Matthiopoulos et al. 2020]
+]
+
+---
+
+## Poisson point process models
+
+In these spatial point processes, we observe a random number of points within a
+spatial domain $\Omega$, following a Poisson distribution with mean $\Lambda$.
+
+The number points at each location $s$ within our domain is also given by a
+Poisson distribution with mean $\lambda(s)$.
+
+$\lambda(s)$ is called the intensity function, and $\Lambda = \int_{\Omega} \lambda(s)ds$.
+
+Alternatively, we can think of the probability of observing a point at $s$ as being
+proportional $\lambda(s)$.
+
+The spatial density of points depends on $\lambda(s)$.
+
+---
+background-image:url(figures/point_pattern_1.png), url(figures/point_pattern_2.png)
+background-position:top 65% right 10%, top 65% right 90%
+background-size:45%, 45%
+
+
+## Poisson point process models
+
+
+
+---
+
+## Poisson point process models
+
+If we consider observed points, being detections of an organism, and
+
+If we can model $\lambda(s)$ as a function of the habitat at $s$, it seems we
+could have a useful model for studying habitat selection.
+
+We could use a standard $\log(\lambda(s)) = \beta_0 + \beta_1 x_1 + ... + \beta_n x_n$,
+where $x_1, ... , x_n$ are environmental covariates, and $\beta_1, ... , \beta_n$ are
+regression coefficients.
+
+Let's simulate from this model...
+
+---
+
+## Two habitat layers
+
+
+```{r, echo=FALSE, fig.align='center', message=FALSE, fig.width=12}
+
+# Load covariates
+elev <- aggregate(raster("data/res01_srtm0_40_16.tif"), fact = 10)
+slp <- aggregate(raster("data/res01_slope_40_16.tif"), fact = 10)
+
+covts_stack <- stack(elev, slp)
+names(covts_stack) <- c("elevation", "slope")
+plot(covts_stack, col = terrain.colors(50))
+    
+```
+
+
+---
+
+## Define parameters and simulate $\lambda(s)$
+
+.pull-left[
+
+```{r, eval=TRUE}
+
+# Coefficients for the IPP model
+# Our species likes heights a bit,
+# but doesn't like slopes
+betas <- c(5, 0.5, -2) %>%
+    matrix(nrow = 3, ncol = 1)
+
+# Intensity function over domain (raster cells)
+covts <- stack(elev, slp) %>%
+    setNames(c("elev", "slp")) %>%
+    as.data.frame() %>%
+    mutate(intcp = 1,
+           across(.cols = c(elev, slp),
+                  ~scale(.x, center = TRUE))) %>%
+    select(intcp, elev, slp) %>% 
+    as.matrix()
+
+# Intensity function at grid cells
+lambda_s <- exp(covts %*% betas)
+
+
+```
+
+]
+
+--
+
+.pull-right[
+```{r echo=FALSE}
+setValues(elev, lambda_s) %>% 
+    setNames("lambda_s") %>% 
+    plot(col = viridis::plasma(10, direction = -1))
+title("Intensity function over domain")
+
+```
+]
+
+---
+
+## Sample from the PPP model
+
+.pull-left[
+
+```{r, eval=TRUE}
+
+# Calculate capital Lambda; how many points simulate?
+Lambda <- mean(lambda_s)
+n_total <- rpois(1, lambda = Lambda)
+
+# Where should these points be?
+# Probabilities of use are proportional to lambda_s
+# For simplicity we sample from the raster grid
+obs_loc <- as.data.frame(elev, xy = TRUE) %>%
+    sample_n(size = n_total,
+             replace = TRUE,
+             weight = lambda_s) %>% 
+    transmute(x = jitter(x, amount = 0.05),
+              y = jitter(y, amount = 0.05))
+
+head(obs_loc, 4)
+
+```
+
+]
+
+--
+
+.pull-right[
+```{r echo=FALSE}
+setValues(elev, lambda_s) %>% 
+    setNames("lambda_s") %>% 
+    plot(col = viridis::plasma(10, direction = -1))
+points(obs_loc$x, obs_loc$y, pch = 19)
+title("One realization of the process")
+
+```
+]
+
+
+---
+
+## Likelihood of $s_i$
+
+
+The probability of observing $s_i$ can be computed as:
+
+$$f(s_i) = \frac{\lambda(s_i|\beta)}{\int_{\Omega}\lambda(s_u|\beta)du} = \frac{e^{\mathbf{x_i}^\intercal\beta}}{\int_{\Omega}e^{\mathbf{x_u}^\intercal\beta}du}$$
+
+where the denominator is the integral of the intensity function over the
+entire domain and it is necessary for $f(s_i)$ to be between 0 and 1.
+
+We can use $f(s_i)$ to build the likelihood function to estimate parameters $f(\beta)$.
+
+**The probability of use of any $s$ depends on the function over the entire domain!**
+**-> It is domain-specific.**
+
+
+---
+
+## Approximating the likelihood
+
+Computing the denominator of $f(s_i)$ is quite costly, but there are ways of approximating it.
+
+- Sample background points and treat them as pseudo-absences -> logistic regression
+
+- Divide the domain into grid cells and count the number of points -> Poisson regression
+
+**Remember: these are only ways of approximating the difficult integral, and 
+estimate the $\beta$ parameters (Warton and Shepherd 2010, Aarts et al. 2012)**
+
+---
+
+## Approximating the likelihood
+
+.pull-left[
+```{r echo=FALSE}
+
+# Sample available locations (no sampling weights)
+ava_loc <- as.data.frame(elev, xy = TRUE) %>%
+    sample_n(size = n_total*10,
+             replace = TRUE) %>% 
+    transmute(x = jitter(x, amount = 0.05),
+              y = jitter(y, amount = 0.05))
+# Plot
+setValues(elev, lambda_s) %>% 
+    setNames("lambda_s") %>% 
+    plot()
+points(ava_loc$x, ava_loc$y, pch = 19, col = alpha("red", 0.5))
+points(obs_loc$x, obs_loc$y, pch = 19, col = alpha("black", 0.5))
+title("Availabe (red) vs. used (black)")
+
+```
+]
+
+.pull-right[
+```{r echo=FALSE}
+domain_grid <- aggregate(elev, 6)
+obs_loc_sf <- st_as_sf(obs_loc, coords = c("x", "y"), crs = 4326)
+grid_counts <- rasterize(obs_loc_sf, domain_grid, fun = "count")
+
+setValues(elev, lambda_s) %>% 
+    setNames("lambda_s") %>% 
+    plot()
+
+plot(rasterToPolygons(domain_grid), add = TRUE)
+
+grid_counts_df <- as.data.frame(grid_counts, xy = TRUE) %>% 
+    mutate(layer = ifelse(is.na(layer), 0, layer))
+
+text(x = grid_counts_df$x,
+     y = grid_counts_df$y,
+     labels = grid_counts_df$layer)
+
+title("Counts per grid cell")
+
+```
+]
+
+
+---
+
+.section[
+# 2. Introducing habitat availability
+]
+
+---
+## Heterogeneous availability
+
+Sometimes our organism "can't reach" all spatial locations equally.
+
+Then, the probability of selecting $s_i$, $f(s_i)$ doesn't only depend on 
+habitat but also on some other availability function $\Phi(s_i)$.
+
+$$f(s_i) = \frac{\lambda(s_i|\beta,...)}{\int_{\Omega}\lambda(s_u|\beta, ...)du} = \frac{e^{\mathbf{x_i}^\intercal\beta} \ \Phi(s_i|...)}{\int_{\Omega}e^{\mathbf{x_u}^\intercal\beta} \ \Phi(s_u|...)du}$$
+
+---
+## Two habitat layers + one availability layer
+
+
+```{r, echo=FALSE, fig.align='center', message=FALSE, fig.width=15}
+
+# Load covariates
+elev <- aggregate(raster("data/res01_srtm0_40_16.tif"), fact = 10)
+slp <- aggregate(raster("data/res01_slope_40_16.tif"), fact = 10)
+
+# Compute availability:
+
+# Define activity center
+act_center <- c(16.5, -18.5)
+
+# Define availability function
+Phi <- function(x, y, act_center){
+    1/sqrt((x - act_center[1])^2 + (y - act_center[2])^2)
+}
+
+# Compute availability throughout domain
+ava_s <- as.data.frame(elev, xy = TRUE) %>% # We take elevation just to extract the x and y coordinates
+    mutate(Phi_s = Phi(x, y, act_center)) %>%
+    pull(Phi_s)
+
+ava <- setValues(elev, ava_s) %>%
+    setNames("ava_s")
+
+covts_stack <- stack(elev, slp, ava)
+names(covts_stack) <- c("elev", "slp", "ava")
+
+# General plotting parameters
+gen_plot <- covts_stack %>% 
+    as.data.frame(xy = TRUE) %>% 
+    ggplot() +
+    coord_equal() +
+    theme_bw() +
+    theme(panel.grid = element_blank(),
+          axis.title = element_blank())
+
+
+# Elevation plot
+elev_plot <- gen_plot +
+    geom_raster(aes(x = x, y = y, fill = elev)) +
+    scale_fill_gradientn(name = "", colours = terrain.colors(50)) +
+    ggtitle("Elevation")
+
+# Slope plot
+slp_plot <- gen_plot +
+    geom_raster(aes(x = x, y = y, fill = slp)) +
+    scale_fill_gradientn(name = "", colours = terrain.colors(50)) +
+    ggtitle("Slope")
+
+# Availability plot
+ava_plot <- gen_plot +
+    geom_raster(aes(x = x, y = y, fill = ava)) +
+    scale_fill_gradientn(name = "", colours = viridis::mako(50, direction = -1)) +
+    ggtitle("Availability") +
+    theme(legend.spacing.x = unit(5, 'mm'))
+
+gridExtra::grid.arrange(elev_plot, slp_plot, ava_plot, nrow = 1)
+
+    
+```
+
+---
+## Availability-dependent intensity function
+
+.pull-left[
+
+```{r, eval=TRUE}
+
+# Same habitat preference coefficients
+betas <- c(5, 0.5, -2) %>%
+    matrix(nrow = 3, ncol = 1)
+
+# Extract covariates from raster cells
+covts <- stack(elev, slp) %>%
+    setNames(c("elev", "slp")) %>%
+    as.data.frame() %>%
+    mutate(intcp = 1,
+           across(.cols = c(elev, slp),
+                  ~scale(.x, center = TRUE))) %>%
+    select(intcp, elev, slp) %>% 
+    as.matrix()
+
+# Habitat contribution to intensity function
+lambda_hab <- exp(covts %*% betas)
+
+# Define availabitlity function Phi
+Phi <- function(x, y, centre){
+    1/sqrt((x - centre[1])^2 + (y - centre[2])^2)
+}
+
+# Availability contribution to intensity function
+lambda_ava <- as.data.frame(elev, xy = TRUE) %>% 
+    mutate(Phi_s = Phi(x, y, c(16.5, -18.5))) %>%
+    pull(Phi_s)
+
+lambda_s <- lambda_hab * lambda_ava
+
+
+```
+
+]
+
+--
+
+.pull-right[
+```{r echo=FALSE}
+# Make raster
+setValues(elev, lambda_s) %>%
+    setNames("lambda_s") %>% 
+    plot(col = viridis::plasma(10, direction = -1))
+
+title("Intensity function over domain")
+
+```
+]
+
+---
+
+.section[
+# 3. Modelling step selection
+]
+
+
+---
+
+## A model for step selection
+
+Telemetry data observations are collected sequentially, often close in time.
+
+There is a dependency between consecutive observations produced by movement constrains.
+
+Not all the spatial domain is equally available for all steps!
+
+We need an availability function that captures movement characteristics, to calculate
+a step-wise intensity function.
+
+We typically formulate the availability function using step-length and turning angles.
+
+
+---
+
+## A model for step selection
+
+The gamma distribution is a suitable model for step lengths.
+
+The Von Mises distribution is a suitable model for turning angles.
+
+$$f(s_i) = \frac{\lambda(s_i|\beta,...)}{\int_{\Omega}\lambda(s_u|\beta, ...)du} = \frac{e^{\mathbf{x_i}^\intercal\beta} \ \Phi(s_i|...)}{\int_{\Omega}e^{\mathbf{x_u}^\intercal\beta} \ \Phi(s_u|...)du}$$
+
+$$\Phi(s_i|s_{i-1}, k, \theta, \kappa, \mu) = \mathrm{gamma}(k, \theta) * \mathrm{VM}(\mu, \kappa)$$
+
+Let us simulate...
+
+---
+
+## Simulating from a step-selection model
+
+.pull-left[
+
+```{r, eval=TRUE, warning=FALSE}
+
+# Define step-length gamma parameters
+shape_gm <- 0.05
+rate_gm <- 0.01
+
+# Define turning-angles Von Mises parameters
+mu_vm <- 0
+kappa_vm <- 1
+
+```
+
+]
+
+.pull-right[
+```{r echo=FALSE, warning=FALSE}
+
+op <- par()
+par(mfrow = c(2,1))
+curve(dgamma(x, shape_gm, rate_gm),
+      xlab = "step-length", ylab = "density")
+
+curve(dvonmises(x, mu_vm, kappa_vm), xlim = c(-2, 2),
+      xlab = "turning-angle", ylab = "density")
+par(op)
+```
+]
+
+
+---
+
+## Simulating from a step-selection model
+
+.pull-left[
+
+```{r, eval=FALSE}
+
+source("functions/calcDist.R")
+source("functions/calcTurnAng.R")
+
+# Create raster with habitat contributions to lambda
+lambda_hab <- exp(covts %*% betas)
+lambda_r <- setValues(elev, lambda_hab) %>%
+    setNames("lambda_s")
+
+# Select initial observation
+obs_now <- c(x = jitter(17.5, amount = 0.05),
+             y = jitter(-17.5, amount = 0.05))
+
+# create past observation to compute turning angles
+obs_past <- c(NA, NA) # NA for the first obs
+
+# Calculate distance and angles to raster cells
+sel_r <- as.data.frame(lambda_r, xy = TRUE) %>%
+    # 1. Calculate distance to grid cells
+    mutate(dist = calcDist(obs_ini, x, y)) %>%
+    # 2. Calculate angles to grid cells
+    rowwise() %>%
+    mutate(ang = calcTurnAng(c(x, y), obs_ini, obs_past)) %>%
+    ungroup()
+
+```
+
+]
+
+
+.pull-right[
+```{r eval=FALSE, warning=FALSE}
+
+# Produce steps
+# Create selection raster from habitat and movement
+sel_r <- sel_r %>%
+    mutate(dist_ker = dgamma(dist, shape_gm, rate_gm),
+           ang_ker = dvonmises(circular(ang), mu_vm, kappa_vm)) %>%
+    mutate(dist_ker = dist_ker/sum(dist_ker),
+           ang_ker = ang_ker/sum(ang_ker),
+           mov_ker = dist_ker*ang_ker/sum(dist_ker*ang_ker),
+           hab_ker = lambda_s / sum(lambda_s),
+           sel_ker = hab_ker*mov_ker / (sum(hab_ker*mov_ker)))
+
+# Sample new location
+obs_past <- obs_now
+
+obs_now <- sel_r %>%
+    sample_n(size = 1,
+             weight = sel_ker) %>%
+    transmute(x = jitter(x, amount = 0.05),
+              y = jitter(y, amount = 0.05))
+
+
+```
+]
+
+
+---
+background-image:url(figures/kernels_anim.gif)
+background-size:90%
+
+## Simulating from a step-selection model
+
+
+
+
+---
+
+## Fitting step-selection models
+
+We can use the likelihood of observing $s_i$, which is now conditional on $s_{i-1}$ to construct $f(\beta)$.
+
+$$f(s_i) = \frac{\lambda(s_i|\beta,...)}{\int_{\Omega}\lambda(s_u|\beta, ...)du} = \frac{e^{\mathbf{x_i}^\intercal\beta} \ \Phi(s_i|...)}{\int_{\Omega}e^{\mathbf{x_u}^\intercal\beta} \ \Phi(s_u|...)du}$$
+
+$$\Phi(s_i|s_{i-1}, k, \theta, \kappa, \mu) = \mathrm{gamma}(k, \theta) * \mathrm{VM}(\mu, \kappa)$$
+But, again the numerator is (even more) complicated to compute.
+
+So, again we approximate the likelihood, with a (conditional) logistic or Poisson regression.
+
+Now we also need to estimate the movement parameters: $k, \theta, \kappa, \mu$.
+
+
+---
+
+.section[
+# 4. `amt`: habitat-selection analysis in R
+]
+
+---
+
+
+```{r, eval=TRUE}
+
+# Prepare data ------------------------------------------------------------
+
+# Read in simulations
+sims <- read.csv("output/ssa_sims.csv")
+head(sims, 2)
+
+# Make track
+sims$t <- as.POSIXct(sims$t)
+sim_trk <- make_track(sims, x, y, t,
+                      crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+
+# Explore track
+head(sim_trk, 2)
+
+
+```
+
+
+---
+
+```{r eval=TRUE, warning=FALSE}
+str(sim_trk)
+
+# Something we usually want to check is the resolution of the track
+summarize_sampling_rate(sim_trk)
+
+# We see the mean and median sampling rate is ca. 1 hour, but it varies
+# from 0.5 hour to 1.5 hours. We want to subsample the track to make it
+# as close as possible to a constant one-hour sampling rate
+sim_trk_1h <- track_resample(sim_trk, rate = hours(1), tolerance = minutes(10))
+
+```
+
+---
+
+
+```{r eval=TRUE, warning=FALSE, R.options = list(width = 110)}
+head(sim_trk_1h, 2)
+
+# amt allows us to change to a step representation rather than point
+# representation and that is what we usually want for step-selection analysis
+step_trk <- steps(sim_trk_1h)
+head(step_trk, 3)
+
+step_trk <- steps_by_burst(sim_trk_1h)
+head(step_trk, 3)
+
+```
+
+---
+
+
+```{r eval=TRUE, warning=FALSE}
+# step-selection analysis -------------------------------------------------
+
+# We are going to fit the model using conditional logistic regression,
+# so we need a sample of background available locations for each step
+step_rdm <- random_steps(step_trk, 10)
+head(step_rdm, 3)
+
+# See movement parameter estimates
+attr(step_rdm, "sl_")$params %>% unlist()
+attr(step_rdm, "ta_")$params %>% unlist()
+
+
+```
+
+---
+
+
+```{r eval=TRUE, warning=FALSE, fig.height=5, fig.align='center'}
+
+# Plot our random points
+step_rdm %>%
+    ggplot() +
+    geom_point(aes(x = x2_, y = y2_, col = case_), alpha = 0.5)
+
+
+```
+
+---
+
+.pull-left[
+```{r eval=TRUE, warning=FALSE}
+
+# Extract covariates
+elev <- aggregate(raster("data/res01_srtm0_40_16.tif"),
+                  fact = 10)
+slp <- aggregate(raster("data/res01_slope_40_16.tif"),
+                 fact = 10)
+
+elev <- setValues(elev, scale(getValues(elev),
+                              center = TRUE))
+slp <- setValues(slp, scale(getValues(slp),
+                            center = TRUE))
+
+covts <- stack(elev, slp) %>%
+    setNames(c("elev", "slp"))
+
+step_covts <- extract_covariates(step_rdm, covts,
+                                 where = "end")
+
+# This is just because our raster doesn't cover
+# all of the points but it shouldn't be necessary!!!
+step_covts <- step_covts %>%
+    filter(!is.na(elev))
+
+# Add log step length and cos of turning angle as
+# covariates
+step_covts <- step_covts %>%
+    mutate(log_sl = log(sl_),
+           cos_ta = cos(ta_))
+
+```
+]
+
+.pull-right[
+```{r echo=FALSE, warning=FALSE}
+step_rdm %>%
+    ggplot() +
+    geom_raster(data = as.data.frame(covts$elev, xy = TRUE),
+                aes(x = x, y = y, fill = elev)) +
+    geom_point(aes(x = x2_, y = y2_, col = case_), alpha = 0.5) +
+    coord_equal()
+```
+
+]
+
+
+---
+
+
+```{r eval=TRUE, warning=FALSE}
+
+# Fit models
+ssm1 <- fit_clogit(data = step_covts, case_ ~ elev + slp + strata(step_id_))
+summary(ssm1)
+
+
+```
+
+---
+
+
+```{r eval=TRUE, warning=FALSE}
+
+# Fit models
+ssm2 <- fit_clogit(data = step_covts, case_ ~ elev + slp + log_sl + cos_ta + strata(step_id_))
+summary(ssm2)
+AIC(ssm1);AIC(ssm2)
+
+```
+
+---
+
+
+```{r eval=TRUE, warning=FALSE}
+
+# Compare models
+AIC(ssm1);AIC(ssm2)
+
+```
+
+---
+
+.section[
+# 5. What else can we do?
+]
+
+
+---
+
+## Extensions of step-selection models
+
+- Integrated step-selection analysis
+.small[
+Avgar, Tal, Jonathan R. Potts, Mark A. Lewis, and Mark S. Boyce. 2016.
+“Integrated Step Selection Analysis: Bridging the Gap between Resource Selection and Animal Movement.”
+Edited by Luca Börger. Methods in Ecology and Evolution 7 (5): 619–30. https://doi.org/10.1111/2041-210X.12528.
+]
+
+
+- Multiple individuals
+.small[
+Muff, Stefanie, Johannes Signer, and John Fieberg. 2020. “Accounting for Individual‐specific Variation in Habitat‐selection Studies: Efficient Estimation of Mixed‐effects Models Using Bayesian or Frequentist Computation.” Edited by Eric Vander Wal. Journal of Animal Ecology 89 (1): 80–92. https://doi.org/10.1111/1365-2656.13087.
+]
+
+
+- Estimate utilization distributions
+.small[
+Signer, J., J. Fieberg, and Tal Avgar. 2017. “Estimating Utilization Distributions from Fitted Step-Selection Functions.”
+Ecosphere 8 (April): in press. https://doi.org/10.1002/ecs2.1771.
+]
+
+
+---
+# Other references
+.small[
+
+- Aarts, Geert, John Fieberg, and Jason Matthiopoulos. 2012. “Comparative Interpretation of Count, Presence-Absence and Point Methods for Species Distribution Models.” Methods in Ecology and Evolution 3 (1): 177–87. https://doi.org/10.1111/j.2041-210X.2011.00141.x.
+
+- Fieberg, John, Johannes Signer, Brian Smith, and Tal Avgar. 2021. “A ‘How‐to’ Guide for Interpreting Parameters 
+in Habitat‐Selection Analyses.” Journal of Animal Ecology, February, 1365-2656.13441. https://doi.org/10.1111/1365-2656.13441.
+
+- Hooten, Mevin B., Devin S. Johnson, Brett T. McClintock, and Juan M. Morales. 2017.
+Animal Movement: Statistical Models for Telemetry Data. Boca Raton, FL: CRC Press.
+
+- Matthiopoulos, Jason; Fieberg, John; Aarts, Geert. (2020). Species-Habitat Associations: Spatial data,
+predictive models, and ecological insights. University of Minnesota Libraries Publishing. Retrieved from the
+University of Minnesota Digital Conservancy, http://hdl.handle.net/11299/217469.
+
+- Signer, Johannes, John Fieberg, and Tal Avgar. 2019. “Animal Movement Tools (amt): R Package for Managing Tracking
+Data and Conducting Habitat Selection Analyses.” Ecology and Evolution 9 (2): 880–90. https://doi.org/10.1002/ece3.4823.
+
+- Warton, David I., and Leah C. Shepherd. 2010. “Poisson Point Process Models Solve the ‘Pseudo-Absence Problem’ for Presence-Only Data in Ecology.” The Annals of Applied Statistics 4 (3): 1383–1402. https://doi.org/10.1214/10-AOAS331.
+
+
+]
+

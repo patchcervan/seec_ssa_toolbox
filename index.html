@@ -119,7 +119,7 @@ Let's simulate from this model...
 ## Two habitat layers
 
 
-&lt;img src="ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-1-1.png" style="display: block; margin: auto;" /&gt;
+&lt;img src="index_files/figure-html/unnamed-chunk-1-1.png" style="display: block; margin: auto;" /&gt;
 
 
 ---
@@ -155,7 +155,7 @@ lambda_s &lt;- exp(covts %*% betas)
 --
 
 .pull-right[
-![](ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-3-1.png)&lt;!-- --&gt;
+![](index_files/figure-html/unnamed-chunk-3-1.png)&lt;!-- --&gt;
 ]
 
 ---
@@ -185,10 +185,10 @@ head(obs_loc, 4)
 
 ```
 ##          x         y
-## 1 19.60283 -16.68293
-## 2 16.28607 -19.52861
-## 3 19.11028 -19.94267
-## 4 15.92014 -16.31713
+## 1 18.79979 -17.18135
+## 2 19.06822 -17.02406
+## 3 19.31434 -18.36496
+## 4 15.57993 -18.90364
 ```
 
 ]
@@ -196,7 +196,7 @@ head(obs_loc, 4)
 --
 
 .pull-right[
-![](ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-5-1.png)&lt;!-- --&gt;
+![](index_files/figure-html/unnamed-chunk-5-1.png)&lt;!-- --&gt;
 ]
 
 
@@ -236,11 +236,11 @@ estimate the `\(\beta\)` parameters (Warton and Shepherd 2010, Aarts et al. 2012
 ## Approximating the likelihood
 
 .pull-left[
-![](ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-6-1.png)&lt;!-- --&gt;
+![](index_files/figure-html/unnamed-chunk-6-1.png)&lt;!-- --&gt;
 ]
 
 .pull-right[
-![](ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-7-1.png)&lt;!-- --&gt;
+![](index_files/figure-html/unnamed-chunk-7-1.png)&lt;!-- --&gt;
 ]
 
 
@@ -264,7 +264,7 @@ habitat but also on some other availability function `\(\Phi(s_i)\)`.
 ## Two habitat layers + one availability layer
 
 
-&lt;img src="ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-8-1.png" style="display: block; margin: auto;" /&gt;
+&lt;img src="index_files/figure-html/unnamed-chunk-8-1.png" style="display: block; margin: auto;" /&gt;
 
 ---
 ## Availability-dependent intensity function
@@ -308,7 +308,7 @@ lambda_s &lt;- lambda_hab * lambda_ava
 --
 
 .pull-right[
-![](ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-10-1.png)&lt;!-- --&gt;
+![](index_files/figure-html/unnamed-chunk-10-1.png)&lt;!-- --&gt;
 ]
 
 ---
@@ -368,7 +368,7 @@ kappa_vm &lt;- 1
 ]
 
 .pull-right[
-![](ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-12-1.png)&lt;!-- --&gt;
+![](index_files/figure-html/unnamed-chunk-12-1.png)&lt;!-- --&gt;
 ]
 
 
@@ -600,11 +600,11 @@ head(step_rdm, 3)
 
 ```
 ## # A tibble: 3 × 12
-##   burst_   x1_   x2_   y1_   y2_   sl_   ta_ t1_                
-## *  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dttm&gt;             
-## 1      3  17.2  16.2 -16.7 -16.6 0.998 NA    2022-08-31 20:03:30
-## 2      3  17.2  18.3 -16.7 -20.0 3.50   1.97 2022-08-31 20:03:30
-## 3      3  17.2  16.6 -16.7 -17.7 1.15   1.12 2022-08-31 20:03:30
+##   burst_   x1_   x2_   y1_   y2_    sl_   ta_ t1_                
+## *  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dttm&gt;             
+## 1      3  17.2  16.2 -16.7 -16.6 0.998  NA    2022-08-31 20:03:30
+## 2      3  17.2  16.8 -16.7 -17.9 1.32    1.34 2022-08-31 20:03:30
+## 3      3  17.2  17.2 -16.7 -16.7 0.0221 -1.54 2022-08-31 20:03:30
 ## # … with 4 more variables: t2_ &lt;dttm&gt;, dt_ &lt;drtn&gt;, step_id_ &lt;int&gt;, case_ &lt;lgl&gt;
 ## # ℹ Use `colnames()` to see all variable names
 ```
@@ -639,7 +639,7 @@ step_rdm %&gt;%
     geom_point(aes(x = x2_, y = y2_, col = case_), alpha = 0.5)
 ```
 
-&lt;img src="ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-19-1.png" style="display: block; margin: auto;" /&gt;
+&lt;img src="index_files/figure-html/unnamed-chunk-19-1.png" style="display: block; margin: auto;" /&gt;
 
 ---
 
@@ -677,7 +677,7 @@ step_covts &lt;- step_covts %&gt;%
 ]
 
 .pull-right[
-![](ssa_seec_toolbox_2022_files/figure-html/unnamed-chunk-21-1.png)&lt;!-- --&gt;
+![](index_files/figure-html/unnamed-chunk-21-1.png)&lt;!-- --&gt;
 
 ]
 
@@ -694,25 +694,25 @@ summary(ssm1)
 
 ```
 ## Call:
-## coxph(formula = Surv(rep(1, 2647L), case_) ~ elev + slp + strata(step_id_), 
+## coxph(formula = Surv(rep(1, 2743L), case_) ~ elev + slp + strata(step_id_), 
 ##     data = data, method = "exact")
 ## 
-##   n= 2647, number of events= 350 
+##   n= 2743, number of events= 350 
 ## 
-##          coef exp(coef) se(coef)      z Pr(&gt;|z|)    
-## elev  0.46849   1.59758  0.08069  5.806 6.41e-09 ***
-## slp  -1.62592   0.19673  0.19979 -8.138 4.01e-16 ***
+##         coef exp(coef) se(coef)      z Pr(&gt;|z|)    
+## elev  0.5140    1.6719   0.0847  6.068  1.3e-09 ***
+## slp  -1.7489    0.1740   0.2052 -8.521  &lt; 2e-16 ***
 ## ---
 ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ## 
 ##      exp(coef) exp(-coef) lower .95 upper .95
-## elev    1.5976     0.6259     1.364     1.871
-## slp     0.1967     5.0831     0.133     0.291
+## elev     1.672     0.5981    1.4162    1.9738
+## slp      0.174     5.7482    0.1164    0.2601
 ## 
-## Concordance= 0.664  (se = 0.019 )
-## Likelihood ratio test= 108.1  on 2 df,   p=&lt;2e-16
-## Wald test            = 75.33  on 2 df,   p=&lt;2e-16
-## Score (logrank) test = 60.97  on 2 df,   p=6e-14
+## Concordance= 0.666  (se = 0.019 )
+## Likelihood ratio test= 118.9  on 2 df,   p=&lt;2e-16
+## Wald test            = 81.72  on 2 df,   p=&lt;2e-16
+## Score (logrank) test = 59.08  on 2 df,   p=1e-13
 ```
 
 ---
@@ -727,30 +727,30 @@ summary(ssm2)
 
 ```
 ## Call:
-## coxph(formula = Surv(rep(1, 2647L), case_) ~ elev + slp + log_sl + 
+## coxph(formula = Surv(rep(1, 2743L), case_) ~ elev + slp + log_sl + 
 ##     cos_ta + strata(step_id_), data = data, method = "exact")
 ## 
-##   n= 2579, number of events= 282 
+##   n= 2675, number of events= 282 
 ##    (68 observations deleted due to missingness)
 ## 
 ##            coef exp(coef) se(coef)      z Pr(&gt;|z|)    
-## elev    0.52154   1.68461  0.09241  5.644 1.66e-08 ***
-## slp    -1.79729   0.16575  0.22462 -8.002 1.23e-15 ***
-## log_sl  0.39051   1.47773  0.06545  5.966 2.43e-09 ***
-## cos_ta -0.20081   0.81807  0.09637 -2.084   0.0372 *  
+## elev    0.61248   1.84500  0.09608  6.375 1.83e-10 ***
+## slp    -1.95491   0.14158  0.23596 -8.285  &lt; 2e-16 ***
+## log_sl  0.38858   1.47489  0.06405  6.067 1.30e-09 ***
+## cos_ta -0.14499   0.86503  0.09730 -1.490    0.136    
 ## ---
 ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ## 
 ##        exp(coef) exp(-coef) lower .95 upper .95
-## elev      1.6846     0.5936    1.4055    2.0191
-## slp       0.1657     6.0333    0.1067    0.2574
-## log_sl    1.4777     0.6767    1.2998    1.6800
-## cos_ta    0.8181     1.2224    0.6773    0.9881
+## elev      1.8450      0.542   1.52831    2.2273
+## slp       0.1416      7.063   0.08915    0.2248
+## log_sl    1.4749      0.678   1.30089    1.6722
+## cos_ta    0.8650      1.156   0.71484    1.0468
 ## 
-## Concordance= 0.697  (se = 0.021 )
-## Likelihood ratio test= 132.9  on 4 df,   p=&lt;2e-16
-## Wald test            = 100.7  on 4 df,   p=&lt;2e-16
-## Score (logrank) test = 88.05  on 4 df,   p=&lt;2e-16
+## Concordance= 0.697  (se = 0.022 )
+## Likelihood ratio test= 145.8  on 4 df,   p=&lt;2e-16
+## Wald test            = 107  on 4 df,   p=&lt;2e-16
+## Score (logrank) test = 87.35  on 4 df,   p=&lt;2e-16
 ```
 
 ```r
@@ -758,11 +758,11 @@ AIC(ssm1);AIC(ssm2)
 ```
 
 ```
-## [1] 1283.52
+## [1] 1302.982
 ```
 
 ```
-## [1] 994.5544
+## [1] 1006.763
 ```
 
 ---
@@ -775,11 +775,11 @@ AIC(ssm1);AIC(ssm2)
 ```
 
 ```
-## [1] 1283.52
+## [1] 1302.982
 ```
 
 ```
-## [1] 994.5544
+## [1] 1006.763
 ```
 
 ---
