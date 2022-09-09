@@ -1,0 +1,307 @@
+---
+title: "Introduction to step-selection analysis"
+author: "Pachi Cervantes"
+institute: "Centre for Statistics in Ecology, the Environment and Conservation"
+date: "18-08-2022"
+output:
+  xaringan::moon_reader:
+    css: xaringan-themer_tuned.css
+    lib_dir: libs
+    nature:
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+      ratio: "16:9"
+
+---
+
+
+```{r xaringan-themer, include=FALSE, warning=FALSE}
+library(xaringanthemer)
+library(dplyr)
+library(raster)
+library(sf)
+library(ggplot2)
+library(amt)
+
+style_mono_accent(
+  base_color = "#1c5253",
+  header_font_google = google_font("Josefin Sans"),
+  text_font_google   = google_font("Montserrat", "300", "300i"),
+  code_font_google   = google_font("Fira Mono")
+)
+```
+
+# Outline
+
+1. What is habitat selection?
+
+2. We can't select what we can't reach
+
+3. Formulation of step-selection functions
+
+4. amt: habitat selection in R
+
+5. Interpretation
+
+6. Conclusion
+
+---
+background-image:url(figures/hab_vs_pop_model_matthiopoulos_et_al.png)
+background-position:top 65% right 10%
+background-size:41%
+
+# What is habitat selection?
+
+.pull-left[
+- Use of habitats disproportionately to their availability.
+
+- Habitat selection studies choices that organisms make
+driven by the type of environment that is available to them.
+]
+
+.pull-right[
+.footnote[Matthiopoulos et al. 2020]
+]
+
+---
+
+
+## Modelling habitat selection: point process models
+
+In a point process, we observe a random number of points in a spatial domain $\Omega$, 
+following a Poisson distribution with mean $\Lambda$.
+
+The number points at each location $s$ within our domain is also given by a
+Poisson distribution with mean $\lambda(s)$.
+
+$\lambda(s)$ is called the intensity function, and $\Lambda = \int_{\Omega} \lambda(s)ds$.
+
+Alternatively, we can think of the probability of observing a point at $s$ as being
+proportional $\lambda(s)$.
+
+The spatial density of points depends on $\lambda(s)$.
+
+---
+
+## Modelling habitat selection: point process models
+
+If we consider observed locations, being detections of an organism, and
+
+If we can model $\lambda(s)$ as a function of the habitat at $s$, it seems we
+could have a useful model for studying habitat selection.
+
+We could use a standard $\log(\lambda(s)) = \beta_0 + \beta_1 x_1 + ... + \beta_n x_n$,
+where $x_1, ... , x_n$ are environmental covariates, and $\beta_1, ... , \beta_n$ are
+regression coefficients.
+
+Let's simulate from this model...
+
+---
+
+## Two habitat layers
+
+
+```{r, echo=FALSE, fig.align='center', message=FALSE, fig.width=12}
+
+# Load covariates
+elev <- aggregate(raster("res01_srtm0_40_16.tif"), fact = 10)
+slp <- aggregate(raster("res01_slope_40_16.tif"), fact = 10)
+
+covts_stack <- stack(elev, slp)
+names(covts_stack) <- c("elevation", "slope")
+plot(covts_stack, col = terrain.colors(50))
+    
+```
+
+
+
+
+---
+
+## Define parameters and simulate $\lambda(s)$
+
+.pull-left[
+
+```{r, eval=TRUE}
+
+# Coefficients for the IPP model
+# Our species likes heights a bit,
+# but doesn't like slopes
+betas <- c(5, 0.5, -2) %>%
+    matrix(nrow = 3, ncol = 1)
+
+# Intensity function over domain (raster cells)
+covts <- stack(elev, slp) %>%
+    setNames(c("elev", "slp")) %>%
+    as.data.frame() %>%
+    mutate(intcp = 1,
+           across(.cols = c(elev, slp),
+                  ~scale(.x, center = TRUE))) %>%
+    select(intcp, elev, slp) %>% 
+    as.matrix()
+
+# Intensity function at grid cells
+lambda_s <- exp(covts %*% betas)
+
+
+```
+
+]
+
+.pull-right[
+```{r echo=FALSE}
+setValues(elev, lambda_s) %>% 
+    setNames("lambda_s") %>% 
+    plot()
+title("Intensity function over domain")
+
+```
+]
+
+---
+
+## Sample from the IPP model
+
+.pull-left[
+
+```{r, eval=TRUE}
+
+# Calculate capital Lambda; how many points simulate?
+Lambda <- mean(lambda_s)
+n_total <- rpois(1, lambda = Lambda)
+
+# Where should these points be?
+# Probabilities of use are proportional to lambda_s
+# For simplicity we sample from the raster grid
+obs_loc <- as.data.frame(elev, xy = TRUE) %>%
+    sample_n(size = n_total,
+             replace = TRUE,
+             weight = lambda_s) %>% 
+    transmute(x = jitter(x, 2),
+              y = jitter(y, 2))
+
+head(obs_loc, 4)
+
+```
+
+]
+
+.pull-right[
+```{r echo=FALSE}
+setValues(elev, lambda_s) %>% 
+    setNames("lambda_s") %>% 
+    plot()
+points(obs_loc$x, obs_loc$y, pch = 19)
+title("One realization of the process")
+
+```
+]
+
+
+---
+
+## Likelihood of $s_i$
+
+
+The probability of observing $s_i$ can be computed as:
+
+$$f(s_i) = \frac{\lambda(s_i|\beta)}{\int_{\Omega}\lambda(u|\beta)du}$$
+
+where the denominator is the integral of the intensity function over the
+entire domain and it is necessary for $f(s_i)$ to be between 0 and 1.
+
+We can use $f(s_i)$ to build the likelihood function to estimate parameters $f(\beta)$.
+
+**The probability of use of any $s$ depends on the function over the entire domain!**
+**-> It is domain-specific.**
+
+
+---
+
+## Approximating the likelihood
+
+Computing the denominator of $f(s_i)$ is quite costly, but there are ways of approximating it.
+
+Logistic regression: Sample background points and treat them as pseudo-absences.
+
+Poisson regression: divide the domain into grid cells and count the number of points.
+
+**Remember: these are only ways of approximating the difficult integral, and 
+estimate the $\beta$ parameters**
+
+---
+
+## Approximating the likelihood
+
+.pull-left[
+```{r echo=FALSE}
+
+# Sample available locations (no sampling weights)
+ava_loc <- as.data.frame(elev, xy = TRUE) %>%
+    sample_n(size = n_total*10,
+             replace = TRUE) %>% 
+    transmute(x = jitter(x),
+              y = jitter(y))
+# Plot
+setValues(elev, lambda_s) %>% 
+    setNames("lambda_s") %>% 
+    plot()
+points(ava_loc$x, ava_loc$y, pch = 19, col = alpha("red", 0.5))
+points(obs_loc$x, obs_loc$y, pch = 19, col = alpha("black", 0.5))
+title("Availabe (red) vs. used (black)")
+
+```
+]
+
+.pull-right[
+```{r echo=FALSE}
+domain_grid <- aggregate(elev, 6)
+obs_loc_sf <- st_as_sf(obs_loc, coords = c("x", "y"), crs = 4326)
+grid_counts <- rasterize(obs_loc_sf, domain_grid, fun = "count")
+
+setValues(elev, lambda_s) %>% 
+    setNames("lambda_s") %>% 
+    plot()
+
+plot(rasterToPolygons(domain_grid), add = TRUE)
+
+grid_counts_df <- as.data.frame(grid_counts, xy = TRUE) %>% 
+    mutate(layer = ifelse(is.na(layer), 0, layer))
+
+text(x = grid_counts_df$x,
+     y = grid_counts_df$y,
+     labels = grid_counts_df$layer)
+
+title("Counts per grid cell")
+
+```
+]
+
+---
+# References
+- Matthiopoulos, Jason; Fieberg, John; Aarts, Geert. (2020). Species-Habitat Associations: Spatial data,
+predictive models, and ecological insights. University of Minnesota Libraries Publishing. Retrieved from the
+University of Minnesota Digital Conservancy, http://hdl.handle.net/11299/217469.
+
+
+
+
+---
+
+## Coloured content boxes
+
+Use `.content-box-blue` (or gray/grey, army, green, purple, red, or yellow) to produce a box with coloured background. Size depends on content.
+
+`.content-box-blue[I feel blue]` yields
+
+.content-box-blue[I feel blue]
+
+Wrap in `.full-width` to expand the width
+
+.full-width[.content-box-red[I feel even more blue]]
+
+If you have content in columns then you get
+
+.pull-left[.full-width[.content-box-yellow[**WARNING** Look out for minons or bananas]]]
+.pull-right[.full-width[.content-box-yellow[The box to the left was created using `.pull-left[.full-width[.content-box-yellow[]]]`]]]

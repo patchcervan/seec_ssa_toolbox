@@ -1,0 +1,186 @@
+library(dplyr)
+library(ggplot2)
+
+rm(list = ls())
+
+source("functions/createHabitatDomain.R")
+
+
+# 1. HABITATS EQUALLY AVAILABLE -------------------------------------------
+
+set.seed(43468)
+
+hab_df <- createHabitatDomain(grid_size = 10,
+                              n_hab = 2,
+
+                              )
+
+grid_size <- 10
+habitat <- 1:2
+
+hab_df <- cbind(expand.grid(x = 1:grid_size, y = 1:grid_size),
+                data.frame(unit = 1:grid_size^2,
+                           hab = sample(habitat,
+                                        size = grid_size^2,
+                                        replace = TRUE))
+)
+
+# Pr(habitat 2) = 2*Pr(habitat 2)
+# Pr(habitat 2) + Pr(habitat 1) = 1
+hab_pref <- c(prob_hab1 = 1/4,
+              prob_hab2 = 3/4)
+
+hab_df <- hab_df %>%
+    mutate(prob = case_when(hab == 1 ~ hab_pref["prob_hab1"],
+                            hab == 2 ~ hab_pref["prob_hab2"]))
+
+hab_use_sample <- hab_df %>%
+    sample_n(size = 100, replace = TRUE, weight = prob)
+
+ggplot(hab_df) +
+    geom_tile(aes(x = x, y = y, fill = factor(hab)), col = "black") +
+    geom_jitter(data = hab_use_sample,
+                aes(x = x, y = y), col = "red") +
+    scale_fill_viridis_d(name = "habitat", option = "D") +
+    theme_void() +
+    theme(legend.text = element_text(size = 18),
+          legend.title = element_text(size = 24))
+
+
+
+# Poisson process ---------------------------------------------------------
+
+# Count the number of points per habitat cell
+counts <- hab_use_sample %>%                 # Count in sample dataframe
+    count(unit, hab) %>%
+    select(unit, count = n) %>%
+    left_join(hab_df, ., by = "unit") %>%    # Add zeros to cells not in sample
+    mutate(count = if_else(is.na(count), 0L, count),
+           hab = factor(hab))
+
+pois_mod <- glm(count ~ hab, data = counts, family = "poisson")
+
+summary(pois_mod)
+
+pois_pred <- predict(pois_mod, data.frame(hab = factor(c(1,2))), se.fit = TRUE)
+
+as.data.frame(pois_pred) %>%
+    mutate(hab = factor(c(1,2)),
+           ub = fit + 1.96*se.fit,
+           lb = fit - 1.96*se.fit) %>%
+    ggplot() +
+    geom_pointrange(aes(x = hab, y = exp(fit), ymin = exp(lb), ymax = exp(ub)))
+
+mean_counts <- counts %>%
+    group_by(hab) %>%
+    summarize(mean_count = mean(count)) %>%
+    pull(mean_count)
+
+mean_counts[2] / mean_counts[1]
+
+
+# 2. HABITATS DISPROPOTIONALY AVAILABLE -----------------------------------
+
+set.seed(43468)
+
+grid_size <- 10
+habitat <- 1:2
+hab_ava <- c(0.6, 0.9)
+
+hab_df <- cbind(expand.grid(x = 1:grid_size, y = 1:grid_size),
+                data.frame(unit = 1:grid_size^2,
+                           hab = sample(habitat,
+                                        size = grid_size^2,
+                                        replace = TRUE))) %>%
+                    mutate(available = rbinom(n = grid_size^2,
+                                              size = 1,
+                                              prob = hab_ava[hab]))
+
+# Pr(habitat 2) = 2*Pr(habitat 2)
+# Pr(habitat 2) + Pr(habitat 1) = 1
+hab_pref <- c(prob_hab1 = 1/4,
+              prob_hab2 = 3/4)
+
+hab_df <- hab_df %>%
+    mutate(prob = case_when(hab == 1 ~ hab_pref["prob_hab1"],
+                            hab == 2 ~ hab_pref["prob_hab2"]),
+           prob = if_else(available == 1, prob, 0))
+
+hab_use_sample <- hab_df %>%
+    sample_n(size = 1000, replace = TRUE, weight = prob)
+
+hab_df %>%
+    ggplot() +
+    geom_tile(aes(x = x, y = y, fill = factor(hab)), col = "black") +
+    geom_tile(data = filter(hab_df, available == 0),
+              aes(x = x, y = y), fill = "grey", col = "black") +
+    geom_jitter(data = hab_use_sample,
+                aes(x = x, y = y), col = "red") +
+    scale_fill_viridis_d(name = "habitat", option = "D") +
+    theme_void() +
+    theme(legend.text = element_text(size = 18),
+          legend.title = element_text(size = 24))
+
+
+
+# Poisson process ---------------------------------------------------------
+
+# Count the number of points per habitat cell
+counts <- hab_use_sample %>%                 # Count in sample dataframe
+    count(unit, hab) %>%
+    select(unit, count = n) %>%
+    left_join(hab_df, ., by = "unit") %>%    # Add zeros to cells not in sample
+    mutate(count = if_else(is.na(count), 0L, count),
+           hab = factor(hab))
+
+pois_mod <- glm(count ~ hab, data = counts, family = "poisson")
+
+summary(pois_mod)
+
+pois_pred <- predict(pois_mod, data.frame(hab = factor(c(1,2))), se.fit = TRUE)
+
+as.data.frame(pois_pred) %>%
+    mutate(hab = factor(c(1,2)),
+           ub = fit + 1.96*se.fit,
+           lb = fit - 1.96*se.fit) %>%
+    ggplot() +
+    geom_pointrange(aes(x = hab, y = exp(fit), ymin = exp(lb), ymax = exp(ub)))
+
+mean_counts <- counts %>%
+    group_by(hab) %>%
+    summarize(mean_count = mean(count)) %>%
+    pull(mean_count)
+
+mean_counts[2] / mean_counts[1]
+
+(mean_counts[2]/hab_ava[2]) / (mean_counts[1]/hab_ava[1])
+
+
+# Add offset (this doesn't work for now)
+counts <- counts %>%
+    mutate(ava_prop = 1 / available)
+
+counts$ava_prop <- 1/hab_ava[counts$hab]
+
+pois_mod <- glm(count ~ hab, offset = 1/available, data = counts, family = "poisson")
+
+summary(pois_mod)
+
+pois_pred <- predict(pois_mod,
+                     data.frame(hab = factor(c(1,2)),
+                                available = 1),
+                     se.fit = TRUE)
+
+as.data.frame(pois_pred) %>%
+    mutate(hab = factor(c(1,2)),
+           ub = fit + 1.96*se.fit,
+           lb = fit - 1.96*se.fit) %>%
+    ggplot() +
+    geom_pointrange(aes(x = hab, y = exp(fit), ymin = exp(lb), ymax = exp(ub)))
+
+mean_counts <- counts %>%
+    group_by(hab) %>%
+    summarize(mean_count = mean(count)) %>%
+    pull(mean_count)
+
+mean_counts[2] / mean_counts[1]

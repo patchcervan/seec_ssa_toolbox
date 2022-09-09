@@ -1,0 +1,27 @@
+{
+    "id": "60B86176",
+    "path": "/mnt/2450E31550E2ED0C/Documentos/mis_trabajos/Communications/seec_ssa_toolbox/functions/calcTurnAng.R",
+    "project_path": "functions/calcTurnAng.R",
+    "type": "r_source",
+    "hash": "1987415384",
+    "contents": "",
+    "dirty": false,
+    "created": 1660829699545.0,
+    "source_on_save": false,
+    "relative_order": 8,
+    "properties": {
+        "tempName": "Untitled3",
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "22,15",
+        "scrollLine": "0"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1661329309,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1661329309519,
+    "read_only": false,
+    "read_only_alternatives": []
+}
