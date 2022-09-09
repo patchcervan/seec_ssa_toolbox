@@ -141,6 +141,9 @@ plot(covts_stack, col = terrain.colors(50))
 .pull-left[
 
 ```{r, eval=TRUE}
+# Load covariates
+elev <- aggregate(raster("data/res01_srtm0_40_16.tif"), fact = 10)
+slp <- aggregate(raster("data/res01_slope_40_16.tif"), fact = 10)
 
 # Coefficients for the IPP model
 # Our species likes heights a bit,
@@ -608,6 +611,7 @@ Now we also need to estimate the movement parameters: $k, \theta, \kappa, \mu$.
 
 
 ```{r, eval=TRUE}
+library(amt)
 
 # Prepare data ------------------------------------------------------------
 

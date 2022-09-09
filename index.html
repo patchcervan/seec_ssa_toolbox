@@ -130,6 +130,10 @@ Let's simulate from this model...
 
 
 ```r
+# Load covariates
+elev &lt;- aggregate(raster("data/res01_srtm0_40_16.tif"), fact = 10)
+slp &lt;- aggregate(raster("data/res01_slope_40_16.tif"), fact = 10)
+
 # Coefficients for the IPP model
 # Our species likes heights a bit,
 # but doesn't like slopes
@@ -185,10 +189,10 @@ head(obs_loc, 4)
 
 ```
 ##          x         y
-## 1 18.79979 -17.18135
-## 2 19.06822 -17.02406
-## 3 19.31434 -18.36496
-## 4 15.57993 -18.90364
+## 1 16.48858 -17.90615
+## 2 18.26022 -19.66091
+## 3 16.86396 -17.35934
+## 4 17.42667 -18.83608
 ```
 
 ]
@@ -470,6 +474,8 @@ Now we also need to estimate the movement parameters: `\(k, \theta, \kappa, \mu\
 
 
 ```r
+library(amt)
+
 # Prepare data ------------------------------------------------------------
 
 # Read in simulations
@@ -600,11 +606,11 @@ head(step_rdm, 3)
 
 ```
 ## # A tibble: 3 × 12
-##   burst_   x1_   x2_   y1_   y2_    sl_   ta_ t1_                
-## *  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dttm&gt;             
-## 1      3  17.2  16.2 -16.7 -16.6 0.998  NA    2022-08-31 20:03:30
-## 2      3  17.2  16.8 -16.7 -17.9 1.32    1.34 2022-08-31 20:03:30
-## 3      3  17.2  17.2 -16.7 -16.7 0.0221 -1.54 2022-08-31 20:03:30
+##   burst_   x1_   x2_   y1_   y2_   sl_    ta_ t1_                
+## *  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dttm&gt;             
+## 1      3  17.2  16.2 -16.7 -16.6 0.998 NA     2022-08-31 20:03:30
+## 2      3  17.2  17.0 -16.7 -16.8 0.170  0.835 2022-08-31 20:03:30
+## 3      3  17.2  17.2 -16.7 -16.4 0.266 -1.56  2022-08-31 20:03:30
 ## # … with 4 more variables: t2_ &lt;dttm&gt;, dt_ &lt;drtn&gt;, step_id_ &lt;int&gt;, case_ &lt;lgl&gt;
 ## # ℹ Use `colnames()` to see all variable names
 ```
@@ -694,25 +700,25 @@ summary(ssm1)
 
 ```
 ## Call:
-## coxph(formula = Surv(rep(1, 2743L), case_) ~ elev + slp + strata(step_id_), 
+## coxph(formula = Surv(rep(1, 2720L), case_) ~ elev + slp + strata(step_id_), 
 ##     data = data, method = "exact")
 ## 
-##   n= 2743, number of events= 350 
+##   n= 2720, number of events= 350 
 ## 
-##         coef exp(coef) se(coef)      z Pr(&gt;|z|)    
-## elev  0.5140    1.6719   0.0847  6.068  1.3e-09 ***
-## slp  -1.7489    0.1740   0.2052 -8.521  &lt; 2e-16 ***
+##          coef exp(coef) se(coef)      z Pr(&gt;|z|)    
+## elev  0.54620   1.72667  0.08359  6.534  6.4e-11 ***
+## slp  -1.79925   0.16542  0.20526 -8.766  &lt; 2e-16 ***
 ## ---
 ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ## 
 ##      exp(coef) exp(-coef) lower .95 upper .95
-## elev     1.672     0.5981    1.4162    1.9738
-## slp      0.174     5.7482    0.1164    0.2601
+## elev    1.7267     0.5791    1.4657    2.0341
+## slp     0.1654     6.0451    0.1106    0.2474
 ## 
-## Concordance= 0.666  (se = 0.019 )
-## Likelihood ratio test= 118.9  on 2 df,   p=&lt;2e-16
-## Wald test            = 81.72  on 2 df,   p=&lt;2e-16
-## Score (logrank) test = 59.08  on 2 df,   p=1e-13
+## Concordance= 0.65  (se = 0.019 )
+## Likelihood ratio test= 128.5  on 2 df,   p=&lt;2e-16
+## Wald test            = 88.06  on 2 df,   p=&lt;2e-16
+## Score (logrank) test = 68.86  on 2 df,   p=1e-15
 ```
 
 ---
@@ -727,30 +733,30 @@ summary(ssm2)
 
 ```
 ## Call:
-## coxph(formula = Surv(rep(1, 2743L), case_) ~ elev + slp + log_sl + 
+## coxph(formula = Surv(rep(1, 2720L), case_) ~ elev + slp + log_sl + 
 ##     cos_ta + strata(step_id_), data = data, method = "exact")
 ## 
-##   n= 2675, number of events= 282 
+##   n= 2652, number of events= 282 
 ##    (68 observations deleted due to missingness)
 ## 
 ##            coef exp(coef) se(coef)      z Pr(&gt;|z|)    
-## elev    0.61248   1.84500  0.09608  6.375 1.83e-10 ***
-## slp    -1.95491   0.14158  0.23596 -8.285  &lt; 2e-16 ***
-## log_sl  0.38858   1.47489  0.06405  6.067 1.30e-09 ***
-## cos_ta -0.14499   0.86503  0.09730 -1.490    0.136    
+## elev    0.55775   1.74674  0.09395  5.937 2.91e-09 ***
+## slp    -1.85374   0.15665  0.22736 -8.153 3.54e-16 ***
+## log_sl  0.38377   1.46780  0.06530  5.877 4.18e-09 ***
+## cos_ta -0.22264   0.80040  0.09655 -2.306   0.0211 *  
 ## ---
 ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ## 
 ##        exp(coef) exp(-coef) lower .95 upper .95
-## elev      1.8450      0.542   1.52831    2.2273
-## slp       0.1416      7.063   0.08915    0.2248
-## log_sl    1.4749      0.678   1.30089    1.6722
-## cos_ta    0.8650      1.156   0.71484    1.0468
+## elev      1.7467     0.5725    1.4530    2.0999
+## slp       0.1567     6.3836    0.1003    0.2446
+## log_sl    1.4678     0.6813    1.2915    1.6682
+## cos_ta    0.8004     1.2494    0.6624    0.9671
 ## 
-## Concordance= 0.697  (se = 0.022 )
-## Likelihood ratio test= 145.8  on 4 df,   p=&lt;2e-16
-## Wald test            = 107  on 4 df,   p=&lt;2e-16
-## Score (logrank) test = 87.35  on 4 df,   p=&lt;2e-16
+## Concordance= 0.684  (se = 0.022 )
+## Likelihood ratio test= 144.1  on 4 df,   p=&lt;2e-16
+## Wald test            = 104.2  on 4 df,   p=&lt;2e-16
+## Score (logrank) test = 86.25  on 4 df,   p=&lt;2e-16
 ```
 
 ```r
@@ -758,11 +764,11 @@ AIC(ssm1);AIC(ssm2)
 ```
 
 ```
-## [1] 1302.982
+## [1] 1283.985
 ```
 
 ```
-## [1] 1006.763
+## [1] 998.523
 ```
 
 ---
@@ -775,11 +781,11 @@ AIC(ssm1);AIC(ssm2)
 ```
 
 ```
-## [1] 1302.982
+## [1] 1283.985
 ```
 
 ```
-## [1] 1006.763
+## [1] 998.523
 ```
 
 ---
